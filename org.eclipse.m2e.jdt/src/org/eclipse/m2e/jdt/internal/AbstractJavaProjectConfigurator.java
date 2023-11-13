@@ -14,6 +14,7 @@
 package org.eclipse.m2e.jdt.internal;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -34,6 +35,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.core.runtime.QualifiedName;
 import org.eclipse.core.runtime.SubMonitor;
 import org.eclipse.jdt.core.IAccessRule;
 import org.eclipse.jdt.core.IClasspathAttribute;
@@ -362,6 +364,9 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
           isTestResourcesSkipped.add(Boolean.FALSE);
         }
       }
+
+      cleanLinkedSourceDirs(project, monitor);
+
       addSourceDirs(classpath, project, mavenProject.getCompileSourceRoots(), classes.getFullPath(), inclusion,
           exclusion, mainSourceEncoding, mon.newChild(1), false);
       addResourceDirs(classpath, project, mavenProject, mavenProject.getBuild().getResources(), classes.getFullPath(),
@@ -469,6 +474,15 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
 
   }
 
+  private void cleanLinkedSourceDirs(IProject project, IProgressMonitor monitor) throws CoreException {
+    for(IResource resource : project.members()) {
+      if(resource instanceof IFolder && "true"
+          .equals(resource.getPersistentProperty(new QualifiedName(MavenJdtPlugin.PLUGIN_ID, "linkedSource")))) {
+        resource.delete(false, monitor);
+      }
+    }
+  }
+
   private IClasspathEntryDescriptor getEnclosingEntryDescriptor(IClasspathDescriptor classpath, IPath fullPath) {
     for(IClasspathEntryDescriptor cped : classpath.getEntryDescriptors()) {
       if(cped.getPath().isPrefixOf(fullPath)) {
@@ -496,10 +510,14 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
       if(directory == null) {
         continue;
       }
-      File resourceDirectory = new File(directory);
-      IPath relativePath = getProjectRelativePath(project, directory);
-      IResource r = project.findMember(relativePath);
-      if(r == project) {
+      File resourceDirectory = new File(resource.getDirectory());
+      String resourceCanonicalPath = resourceDirectory.getAbsolutePath();
+      try {
+        resourceCanonicalPath = resourceDirectory.getCanonicalPath();
+      } catch(IOException ex) {
+      }
+      IFolder resourceFolder = getFolder(project, resourceCanonicalPath);
+      if(resourceFolder == project) {
         /*
          * Workaround for the Java Model Exception:
          *   Cannot nest output folder 'xxx/src/main/resources' inside output folder 'xxx'
@@ -515,15 +533,11 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
          *       </includes>
          *     </resource>
          */
-        log.error("Skipping resource folder " + r.getFullPath());
+        log.error("Skipping resource folder " + resourceFolder.getFullPath());
         return;
       }
-      if(r == null) {
-        //this means the resources does not exits (yet) but might be created later on!
-        r = project.getFolder(relativePath);
-      }
-      if(project.equals(r.getProject())) {
-        IPath path = r.getFullPath();
+      if(project.equals(resourceFolder.getProject())) {
+        IPath path = resourceFolder.getFullPath();
         IClasspathEntryDescriptor enclosing = getEnclosingEntryDescriptor(classpath, path);
         if(enclosing != null && overlapsWithSourceFolder(path, project, mavenProject)) {
           configureOverlapWithSource(classpath, enclosing, path);
@@ -534,7 +548,6 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
           addResourceFolder(classpath, path, outputPath, addTestFlag);
         }
         // Set folder encoding (null = platform default)
-        IFolder resourceFolder = project.getFolder(relativePath);
         if(resourceFolder.exists()) {
           resourceFolder.setDefaultCharset(resourceEncoding, monitor);
         }
@@ -865,11 +878,18 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
     }
   }
 
-  protected IFolder getFolder(IProject project, String absolutePath) {
+  protected IFolder getFolder(IProject project, String absolutePath) throws CoreException {
     if(project.getLocation().makeAbsolute().equals(Path.fromOSString(absolutePath))) {
       return project.getFolder(project.getLocation());
     }
-    return project.getFolder(getProjectRelativePath(project, absolutePath));
+    IPath relativePath = getProjectRelativePath(project, absolutePath);
+    if(relativePath.segment(0).equals("..")) {
+      IFolder folder = project.getFolder(relativePath.lastSegment());
+      folder.createLink(new File(absolutePath).toURI(), IResource.REPLACE, null);
+      folder.setPersistentProperty(new QualifiedName(MavenJdtPlugin.PLUGIN_ID, "linkedSource"), "true");
+      return folder;
+    }
+    return project.getFolder(relativePath);
   }
 
   protected IPath getProjectRelativePath(IProject project, String absolutePath) {
@@ -880,7 +900,7 @@ public abstract class AbstractJavaProjectConfigurator extends AbstractProjectCon
     } else if(absolutePath.startsWith(basedir.getAbsolutePath())) {
       relative = absolutePath.substring(basedir.getAbsolutePath().length() + 1);
     } else {
-      relative = absolutePath;
+      relative = Path.fromOSString(absolutePath).makeRelativeTo(project.getLocation()).toString();
     }
     return new Path(relative.replace('\\', '/'));
   }

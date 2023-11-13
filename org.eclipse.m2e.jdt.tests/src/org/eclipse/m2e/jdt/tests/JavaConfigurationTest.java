@@ -10,34 +10,21 @@
 
 package org.eclipse.m2e.jdt.tests;
 
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
-import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.function.Predicate;
 
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IMarker;
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.IncrementalProjectBuilder;
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.FileLocator;
-import org.eclipse.jdt.core.IClasspathEntry;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.core.resources.*;
+import org.eclipse.core.runtime.*;
+import org.eclipse.jdt.core.*;
 import org.eclipse.m2e.core.MavenPlugin;
 import org.eclipse.m2e.core.internal.preferences.MavenConfigurationImpl;
 import org.eclipse.m2e.tests.common.AbstractMavenProjectTestCase;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.*;
 
 @SuppressWarnings("restriction")
 public class JavaConfigurationTest extends AbstractMavenProjectTestCase {
@@ -131,6 +118,12 @@ public class JavaConfigurationTest extends AbstractMavenProjectTestCase {
 		assertEquals("11", project.getOption(JavaCore.COMPILER_COMPLIANCE, false));
 		assertEquals(JavaCore.ENABLED, project.getOption(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, false));
 		assertEquals(JavaCore.IGNORE, project.getOption(JavaCore.COMPILER_PB_REPORT_PREVIEW_FEATURES, false));
+	}
+
+	@Test
+	public void testAddSourceResource() throws CoreException, IOException, InterruptedException {
+		IJavaProject project = importResourceProject("/projects/add-source-resource/submoduleA/pom.xml");
+		assertEquals(4, project.getRawClasspath().length);
 	}
 	// --- utility methods ---
 
